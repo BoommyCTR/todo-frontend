@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, watch, computed, onMounted } from 'vue'
+import { ref, watch, computed, onMounted, reactive } from 'vue'
 import { Trash2 } from 'lucide-vue-next'
 import {
   addTodo,
@@ -11,9 +11,10 @@ import {
   putTodo,
   register,
 } from './fetchers/index'
+import * as z from 'zod'
+import type { FormSubmitEvent } from '@nuxt/ui'
 
 const name = ref(false)
-const nameInput = ref('')
 const todo = ref('')
 const todos = ref<
   {
@@ -29,8 +30,7 @@ const todos = ref<
 const openLogin = ref(false)
 const openRegister = ref(false)
 const usernameShow = ref('')
-const username = ref('')
-const password = ref('')
+const onError = ref(false)
 
 const categories = ref([
   {
@@ -44,6 +44,17 @@ const categories = ref([
 ])
 
 const selectedCategory = ref('')
+
+const stateLogin = reactive({
+  email: '',
+  password: '',
+})
+
+const stateRegister = reactive({
+  name: '',
+  email: '',
+  password: '',
+})
 
 const toast = useToast()
 
@@ -72,7 +83,16 @@ const disabledButton = computed(() => {
 })
 
 const disabledButtonModal = computed(() => {
-  return username.value != '' && password.value.trim() != '' ? false : true
+  return (stateLogin.email != '' && stateLogin.password.trim() != '') ||
+    (stateRegister.name != '' &&
+      stateRegister.email != '' &&
+      stateRegister.password.trim() != '' &&
+      stateRegister.password.trim().length >= 8 &&
+      /[A-Z]/.test(stateRegister.password) &&
+      /[a-z]/.test(stateRegister.password) &&
+      /\d/.test(stateRegister.password))
+    ? false
+    : true
 })
 
 const handleAddTodo = async () => {
@@ -127,16 +147,21 @@ const handleDeleteTodo = async (id: number) => {
     })
 }
 
-const handleLogin = async () => {
-  if (username.value.trim() != '' && password.value.trim() != '') {
-    await login({ email: username.value.trim(), password: password.value.trim() })
+const handleLogin = async (email?: string, password?: string) => {
+  if ((stateLogin.email.trim() != '' && stateLogin.password.trim() != '') || (email && password)) {
+    await login({
+      email: email ?? stateLogin.email.trim(),
+      password: password ?? stateLogin.password.trim(),
+    })
       .then(() => {
         openLogin.value = false
+        onError.value = false
         window.location.reload()
         showToast('Login Success', `Welcome back, ${usernameShow.value}!`, 'success')
       })
       .catch((error) => {
         showToast('Login Failed', 'Invalid username or password.', 'error')
+        onError.value = true
         console.log(error)
       })
   }
@@ -155,18 +180,25 @@ const handleLogout = async () => {
 }
 
 const handleRegister = async () => {
-  if (username.value.trim() != '' && password.value.trim() != '' && nameInput.value.trim() != '') {
+  if (
+    stateRegister.email.trim() != '' &&
+    stateRegister.password.trim() != '' &&
+    stateRegister.name.trim() != ''
+  ) {
     await register({
-      email: username.value.trim(),
-      password: password.value.trim(),
-      name: nameInput.value.trim(),
+      email: stateRegister.email.trim(),
+      password: stateRegister.password.trim(),
+      name: stateRegister.name.trim(),
     })
       .then(() => {
         showToast('Register Success', '', 'success')
+        handleLogin(stateRegister.email.trim(), stateRegister.password.trim())
+        onError.value = false
         openRegister.value = false
       })
       .catch((error) => {
         showToast('Register Failed', `username already existed!`, 'error')
+        onError.value = true
         console.log(error)
       })
   }
@@ -204,16 +236,16 @@ const handleWhoami = async () => {
 
 watch(openLogin, (newOpen) => {
   if (newOpen) {
-    username.value = ''
-    password.value = ''
+    stateLogin.email = ''
+    stateLogin.password = ''
   }
 })
 
 watch(openRegister, (newOpen) => {
   if (newOpen) {
-    nameInput.value = ''
-    username.value = ''
-    password.value = ''
+    stateRegister.name = ''
+    stateRegister.email = ''
+    stateRegister.password = ''
   }
 })
 
@@ -261,37 +293,44 @@ onMounted(() => {
               >
 
               <template #body>
-                <div class="flex flex-col gap-4">
-                  <input
-                    type="email"
-                    class="p-2 rounded bg-[#EEF0EB] text-[#284B63] outline-none transition-all w-full"
-                    placeholder="Username"
-                    v-model="username"
-                  />
-                  <input
-                    type="password"
-                    class="p-2 rounded bg-[#EEF0EB] text-[#284B63] outline-none transition-all w-full"
-                    placeholder="Password"
-                    v-model="password"
-                  />
-                </div>
-              </template>
-
-              <template #footer>
-                <UButton
-                  label="Cancel"
-                  color="neutral"
-                  variant="outline"
-                  @click="openLogin = false"
-                  class="cursor-pointer"
-                />
-                <UButton
-                  label="Login"
-                  color="neutral"
-                  class="cursor-pointer"
-                  :disabled="disabledButtonModal"
-                  @click="handleLogin"
-                />
+                <UForm :state="stateLogin" class="space-y-4" @submit="handleLogin()">
+                  <div class="flex flex-col gap-4">
+                    <UFormField label="Email" name="email">
+                      <input
+                        type="email"
+                        class="p-2 rounded bg-[#EEF0EB] text-[#284B63] outline-none transition-all w-full"
+                        :class="onError ? 'border border-red-500' : ''"
+                        placeholder="Email"
+                        v-model="stateLogin.email"
+                      />
+                    </UFormField>
+                    <UFormField label="Password" name="password">
+                      <input
+                        type="password"
+                        class="p-2 rounded bg-[#EEF0EB] text-[#284B63] outline-none transition-all w-full"
+                        :class="onError ? 'border border-red-500' : ''"
+                        placeholder="Password"
+                        v-model="stateLogin.password"
+                      />
+                    </UFormField>
+                  </div>
+                  <div class="flex justify-end gap-2">
+                    <UButton
+                      label="Cancel"
+                      color="neutral"
+                      variant="outline"
+                      @click="openLogin = false"
+                      class="cursor-pointer"
+                    />
+                    <UButton
+                      label="Login"
+                      color="neutral"
+                      class="cursor-pointer"
+                      :disabled="disabledButtonModal"
+                      type="submit"
+                    />
+                  </div>
+                </UForm>
               </template>
             </UModal>
             <!-- register -->
@@ -308,43 +347,57 @@ onMounted(() => {
               >
 
               <template #body>
-                <div class="flex flex-col gap-4">
-                  <input
-                    type="text"
-                    class="p-2 rounded bg-[#EEF0EB] text-[#284B63] outline-none transition-all w-full"
-                    placeholder="Name"
-                    v-model="nameInput"
-                  />
-                  <input
-                    type="email"
-                    class="p-2 rounded bg-[#EEF0EB] text-[#284B63] outline-none transition-all w-full"
-                    placeholder="Username"
-                    v-model="username"
-                  />
-                  <input
-                    type="password"
-                    class="p-2 rounded bg-[#EEF0EB] text-[#284B63] outline-none transition-all w-full"
-                    placeholder="Password"
-                    v-model="password"
-                  />
-                </div>
-              </template>
-
-              <template #footer>
-                <UButton
-                  label="Cancel"
-                  color="neutral"
-                  variant="outline"
-                  @click="openRegister = false"
-                  class="cursor-pointer"
-                />
-                <UButton
-                  label="Register"
-                  color="neutral"
-                  class="cursor-pointer"
-                  :disabled="disabledButtonModal"
-                  @click="handleRegister"
-                />
+                <UForm :state="stateRegister" class="space-y-4" @submit="handleRegister">
+                  <div class="flex flex-col gap-4">
+                    <UFormField label="Name" name="name">
+                      <input
+                        type="text"
+                        class="p-2 rounded bg-[#EEF0EB] text-[#284B63] outline-none transition-all w-full"
+                        :class="onError ? 'border border-red-500' : ''"
+                        placeholder="Name"
+                        v-model="stateRegister.name"
+                      />
+                    </UFormField>
+                    <UFormField label="Email" name="email">
+                      <input
+                        type="email"
+                        class="p-2 rounded bg-[#EEF0EB] text-[#284B63] outline-none transition-all w-full"
+                        :class="onError ? 'border border-red-500' : ''"
+                        placeholder="Email"
+                        v-model="stateRegister.email"
+                      />
+                    </UFormField>
+                    <UFormField label="Password" name="password">
+                      <input
+                        type="password"
+                        class="p-2 rounded bg-[#EEF0EB] text-[#284B63] outline-none transition-all w-full"
+                        :class="onError ? 'border border-red-500' : ''"
+                        placeholder="Password"
+                        v-model="stateRegister.password"
+                      />
+                      <div class="text-gray-400 text-[12px] mt-1">
+                        Password must be at least 8 characters long. Must contain at least 1
+                        uppercase letter, 1 lowercase letter and 1 number.
+                      </div>
+                    </UFormField>
+                  </div>
+                  <div class="flex justify-end gap-2">
+                    <UButton
+                      label="Cancel"
+                      color="neutral"
+                      variant="outline"
+                      @click="openRegister = false"
+                      class="cursor-pointer"
+                    />
+                    <UButton
+                      label="Register"
+                      color="neutral"
+                      class="cursor-pointer"
+                      :disabled="disabledButtonModal"
+                      type="submit"
+                    />
+                  </div>
+                </UForm>
               </template>
             </UModal>
           </div>
